@@ -58,6 +58,9 @@
     border-radius:12px; padding:10px 14px; cursor:pointer; }
   #adBanner { width:100%; max-width:520px; text-align:center; font-size:10px; letter-spacing:2px; color:#3d4a6b;
     padding:6px 0 calc(env(safe-area-inset-bottom, 6px) + 6px); }
+  #soundBtn { font-size:15px; background:none; border:1px solid #2b3b6b; border-radius:10px; color:#8fa3c8;
+    padding:5px 9px; cursor:pointer; line-height:1; }
+  #streak { font-size:9px; color:#ffd54d; font-weight:800; letter-spacing:1px; margin-top:2px; min-height:11px; }
 </style>
 </head>
 <body>
@@ -67,10 +70,12 @@
 <div id="app">
   <header>
     <div id="logo">SKYBLOCKS<small>BY SKYDOG AI</small></div>
+    <button id="soundBtn">🔊</button>
     <div class="scorebox">
       <div class="lbl">SCORE</div>
       <div id="score">0</div>
       <div id="best">BEST 0</div>
+      <div id="streak"></div>
     </div>
   </header>
   <canvas id="game"></canvas>
@@ -83,6 +88,7 @@
     <div class="big" id="ovScore" style="display:none">0</div>
     <p id="ovBest" style="display:none"></p>
     <button class="btn" id="playBtn">PLAY</button><br>
+    <button class="btn ghost" id="shareBtn" style="display:none">⚡ CHALLENGE A FRIEND</button><br>
     <button class="btn ghost" id="removeAdsBtn">Remove Ads — $2.99</button>
   </div>
 </div>
@@ -176,6 +182,78 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} }
 };
 
+/* ---------- Sound: synthesized, zero files (SkySound) ---------- */
+const SkySound = {
+  enabled: store.get('sb_sound', true),
+  ctx: null,
+  ensure(){
+    if (!this.enabled) return null;
+    if (!this.ctx){ try { this.ctx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ return null; } }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    return this.ctx;
+  },
+  tone(freq, dur, type, vol, delay, slide){
+    const ctx = this.ensure(); if (!ctx) return;
+    const t0 = ctx.currentTime + (delay||0);
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type||'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq+slide), t0+dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol||0.15, t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t0); o.stop(t0+dur+0.05);
+  },
+  pop(){ this.tone(430, 0.07, 'triangle', 0.13, 0, 130); },
+  clear(lines, comboN){
+    const base = 500 + Math.min(comboN,8)*70;
+    for (let i=0;i<Math.min(lines,4);i++) this.tone(base+i*150, 0.16, 'triangle', 0.19, i*0.055, 240);
+    if (lines>1 || comboN>1) this.tone(base+430, 0.26, 'sine', 0.11, Math.min(lines,4)*0.055+0.04, 320);
+  },
+  over(){ this.tone(320, 0.22, 'sawtooth', 0.09, 0, -150); this.tone(185, 0.36, 'sawtooth', 0.09, 0.18, -85); },
+  record(){ [660, 830, 990, 1320].forEach((f,i)=>this.tone(f, 0.17, 'triangle', 0.15, i*0.085, 0)); },
+  click(){ this.tone(720, 0.05, 'square', 0.06, 0, -220); },
+  toggle(){ this.enabled = !this.enabled; store.set('sb_sound', this.enabled); if (this.enabled){ this.ensure(); this.click(); } return this.enabled; }
+};
+
+/* ---------- Daily streak ---------- */
+function localDay(d){ const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function bumpStreak(){
+  const now = new Date();
+  const today = localDay(now), yesterday = localDay(new Date(now.getTime()-86400000));
+  let s = store.get('sb_streak', {last:null, count:0});
+  if (s.last === today) { /* already counted today */ }
+  else if (s.last === yesterday) { s.count++; s.last = today; }
+  else { s.count = 1; s.last = today; }
+  store.set('sb_streak', s);
+  return s.count;
+}
+function renderStreak(){
+  const s = store.get('sb_streak', null);
+  const el = document.getElementById('streak');
+  if (s && s.count) el.textContent = s.count>1 ? ('🔥 '+s.count+'-DAY STREAK') : '🔥 DAY 1';
+}
+
+/* ---------- Challenge-a-friend ---------- */
+const GAME_URL = 'https://skydog84.github.io/skyblocks/';
+const challengeTarget = (()=>{ try { const v = parseInt(new URLSearchParams(location.search).get('beat')||''); return (v>0 && v<100000000) ? v : null; } catch(e){ return null; } })();
+let challengeBeaten = false;
+async function doShare(){
+  const s = score || best || 0;
+  const url = GAME_URL + '?beat=' + s;
+  const text = 'I scored ' + s + ' in SkyBlocks ⚡ Think you can beat me?';
+  if (navigator.share){ try { await navigator.share({ title:'SkyBlocks', text, url }); } catch(e){} }
+  else {
+    try {
+      await navigator.clipboard.writeText(text + ' ' + url);
+      const b = document.getElementById('shareBtn');
+      b.textContent = 'COPIED — PASTE IT ANYWHERE ✓';
+      setTimeout(()=>{ b.textContent = '⚡ CHALLENGE A FRIEND'; }, 1700);
+    } catch(e){}
+  }
+}
+
 /* ---------- Starfield background ---------- */
 const sc = document.getElementById('stars'), sx = sc.getContext('2d');
 let stars = [];
@@ -253,6 +331,7 @@ function newGame() {
   score = 0; combo = 0; particles = []; popups = [];
   pieces = [null,null,null]; refillTray();
   playing = true;
+  bumpStreak(); renderStreak();
   updateHUD();
 }
 
@@ -301,12 +380,19 @@ function place(piece, R, C) {
     for (const c of cols) for (let r=0;r<N;r++){ if(grid[r][c]!==null){ burst(r,c,grid[r][c]); grid[r][c]=null; } }
     popups.push({ text: (combo>1? `COMBO x${combo}  `:'')+`+${pts}`, x:W/2, y:boardY+cell*N/2, t:0 });
     haptic(lines>1? 'heavy':'medium');
+    SkySound.clear(lines, combo);
   } else {
     combo = 0;
     haptic('light');
+    SkySound.pop();
   }
   if (pieces.every(p=>!p||p.used)) refillTray();
   updateHUD();
+  if (challengeTarget && !challengeBeaten && score > challengeTarget){
+    challengeBeaten = true;
+    popups.push({ text:'🎯 CHALLENGE BEATEN!', x:W/2, y:boardY+cell*N/2-30, t:0 });
+    SkySound.record();
+  }
   if (!anyMove()) endGame();
 }
 
@@ -322,6 +408,7 @@ function burst(r,c,colorIdx) {
 function endGame() {
   playing = false;
   if (score>best){ best=score; store.set('sb_best',best); }
+  if (score>0 && score>=best) SkySound.record(); else SkySound.over();
   updateHUD();
   SkyAds.showInterstitialMaybe();
   showOverlay(true);
@@ -334,6 +421,9 @@ function showOverlay(gameOver) {
   $('overlay').style.display='flex';
   $('ovTitle').textContent = gameOver? 'GAME OVER':'SKYBLOCKS';
   $('ovSub').textContent = gameOver? (score>=best&&score>0? 'NEW RECORD ⚡':'The grid always wins… eventually.'):'Drag blocks. Fill lines. Feel the glow.';
+  if (!gameOver && challengeTarget) $('ovSub').textContent = '🎯 Your friend scored '+challengeTarget+' — beat it!';
+  if (gameOver && challengeBeaten) $('ovSub').textContent = '🎯 Challenge beaten!'+(score>=best&&score>0? ' NEW RECORD ⚡':'');
+  $('shareBtn').style.display = (gameOver && score>0) ? 'inline-block' : 'none';
   $('ovScore').style.display = gameOver? 'block':'none';
   $('ovScore').textContent = score;
   $('ovBest').style.display = gameOver? 'block':'none';
@@ -517,8 +607,12 @@ grid = Array.from({length:N},()=>Array(N).fill(null));
 pieces = [null,null,null];
 updateHUD();
 showOverlay(false);
-$('playBtn').addEventListener('click', ()=>{ $('overlay').style.display='none'; newGame(); });
+$('playBtn').addEventListener('click', ()=>{ SkySound.ensure(); SkySound.click(); $('overlay').style.display='none'; newGame(); });
 $('removeAdsBtn').addEventListener('click', ()=>SkyIAP.buyRemoveAds());
+$('shareBtn').addEventListener('click', doShare);
+$('soundBtn').textContent = SkySound.enabled ? '🔊' : '🔇';
+$('soundBtn').addEventListener('click', ()=>{ $('soundBtn').textContent = SkySound.toggle() ? '🔊' : '🔇'; });
+renderStreak();
 requestAnimationFrame(render);
 
 /* debug/test hook */
