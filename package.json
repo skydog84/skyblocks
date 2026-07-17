@@ -1,0 +1,12 @@
+{
+  "name": "skyblocks",
+  "version": "1.0.0",
+  "description": "SkyBlocks — a futuristic block puzzle by SkyDog AI",
+  "scripts": {
+    "ios:setup": "npm install @capacitor/core @capacitor/cli @capacitor/ios @capacitor-community/admob && npx cap add ios",
+    "ios:sync": "npx cap sync ios",
+    "ios:open": "npx cap open ios"
+  },
+  "author": "SkyDog",
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,9 @@
+{
+  "appId": "com.skydog.skyblocks",
+  "appName": "SkyBlocks",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#05060f"
+  }
+}
