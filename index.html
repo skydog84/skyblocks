@@ -89,7 +89,8 @@
     <p id="ovBest" style="display:none"></p>
     <button class="btn" id="playBtn">PLAY</button><br>
     <button class="btn ghost" id="shareBtn" style="display:none">⚡ CHALLENGE A FRIEND</button><br>
-    <button class="btn ghost" id="removeAdsBtn">Remove Ads — $2.99</button>
+    <button class="btn ghost" id="removeAdsBtn">Remove Ads — $2.99</button><br>
+    <button class="btn ghost" id="restoreBtn" style="font-size:11px;opacity:.75">Restore Purchases</button>
   </div>
 </div>
 
@@ -156,6 +157,8 @@ const SkyAds = {
   async removeForever(){
     this.removed = true;
     store.set('sb_removeads', true);
+    var _rb=document.getElementById('removeAdsBtn'); if(_rb) _rb.style.display='none';
+    var _rs=document.getElementById('restoreBtn'); if(_rs) _rs.style.display='none';
     const AdMob = nativeAdMob();
     if (AdMob){ try { await AdMob.hideBanner(); } catch(e){} try { await AdMob.removeBanner(); } catch(e){} }
   }
@@ -177,6 +180,17 @@ const SkyIAP = {
       const p = res && res.products && res.products[0];
       if (p && p.priceString) $('removeAdsBtn').textContent = "Remove Ads — " + p.priceString;
     } catch(e){ console.log("[SkyIAP] price load failed:", e); }
+    // Silent auto-restore: if this Apple ID already owns Remove Ads (reinstall,
+    // new phone), turn ads off without the user touching anything.
+    if (!SkyAds.removed && Store.getPurchases){
+      try {
+        const owned = await Store.getPurchases({ onlyCurrentEntitlements: true });
+        if (owned && owned.purchases && owned.purchases.some(t => t.productIdentifier === IAP_PRODUCT_ID)){
+          await SkyAds.removeForever();
+          console.log("[SkyIAP] Existing Remove Ads purchase found — restored automatically.");
+        }
+      } catch(e){ console.log("[SkyIAP] entitlement check failed:", e); }
+    }
   },
   async buyRemoveAds(){
     const Store = nativeStore();
@@ -192,6 +206,22 @@ const SkyIAP = {
       console.log("[SkyIAP] Purchase flow will run in the App Store build.");
       alertBanner("Purchases work in the App Store version 💫");
     }
+  },
+  async restore(){
+    const Store = nativeStore();
+    if (!Store || !Store.restorePurchases){
+      alertBanner("Restore works in the App Store version 💫"); return;
+    }
+    try {
+      await Store.restorePurchases();   // sync with the App Store (may ask for Apple ID sign-in)
+      const owned = await Store.getPurchases({ onlyCurrentEntitlements: true });
+      if (owned && owned.purchases && owned.purchases.some(t => t.productIdentifier === IAP_PRODUCT_ID)){
+        await SkyAds.removeForever();
+        alertBanner("Purchases restored — ads removed 💫");
+      } else {
+        alertBanner("No previous purchase found on this Apple ID");
+      }
+    } catch(e){ console.log("[SkyIAP] restore failed:", e); alertBanner("Restore didn't finish — try again"); }
   }
 };
 
@@ -619,6 +649,11 @@ SkyIAP.init();                                        // loads the live App Stor
 if (!nativeAdMob()){                                   // plain browser / web share: hide app-only chrome
   var _ab=document.getElementById('adBanner'); if(_ab) _ab.style.display='none';
   var _rb=document.getElementById('removeAdsBtn'); if(_rb) _rb.style.display='none';
+  var _rs=document.getElementById('restoreBtn'); if(_rs) _rs.style.display='none';
+}
+if (SkyAds.removed){                                   // already bought Remove Ads: no purchase UI
+  var _rb2=document.getElementById('removeAdsBtn'); if(_rb2) _rb2.style.display='none';
+  var _rs2=document.getElementById('restoreBtn'); if(_rs2) _rs2.style.display='none';
 }
 function boot(){ initStars(); layout(); }
 addEventListener('resize', boot);
@@ -629,6 +664,7 @@ updateHUD();
 showOverlay(false);
 $('playBtn').addEventListener('click', ()=>{ SkySound.ensure(); SkySound.click(); $('overlay').style.display='none'; newGame(); });
 $('removeAdsBtn').addEventListener('click', ()=>SkyIAP.buyRemoveAds());
+$('restoreBtn').addEventListener('click', ()=>SkyIAP.restore());
 $('shareBtn').addEventListener('click', doShare);
 $('soundBtn').textContent = SkySound.enabled ? '🔊' : '🔇';
 $('soundBtn').addEventListener('click', ()=>{ $('soundBtn').textContent = SkySound.toggle() ? '🔊' : '🔇'; });
