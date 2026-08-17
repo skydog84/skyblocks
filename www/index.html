@@ -125,8 +125,13 @@ async function initAdMob(){
   const AdMob = nativeAdMob();
   if (!AdMob){ console.log("[SkyAds] Browser mode — native ads not attached."); return; }
   try {
-    await AdMob.initialize({ initializeForTesting: ADMOB_TESTING });
+    /* App Tracking Transparency FIRST (Apple 2.1 rejection fix, 2026-07-31):
+       the prompt must appear before any ad data is collected, and iOS can
+       silently drop it if the app isn't fully active yet — so wait a beat,
+       ask the user, and only THEN initialize ads. */
+    await new Promise(r => setTimeout(r, 900));
     try { await AdMob.requestTrackingAuthorization(); } catch(e){}   // iOS App Tracking Transparency prompt
+    await AdMob.initialize({ initializeForTesting: ADMOB_TESTING });
     if (!SkyAds.removed){
       await AdMob.showBanner({ adId: ADMOB_IDS.banner, adSize: "ADAPTIVE_BANNER", position: "BOTTOM_CENTER", isTesting: ADMOB_TESTING });
       await AdMob.prepareInterstitial({ adId: ADMOB_IDS.interstitial, isTesting: ADMOB_TESTING });  // pre-load first interstitial

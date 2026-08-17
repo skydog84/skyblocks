@@ -6,3 +6,6 @@ ios/DerivedData/
 # internal business docs — never publish to this public repo
 *.pdf
 HANDOFF*.md
+*HANDOFF*.md
+SKYBLOCKZ_GAMEPLAN*.md
+SKYBLOCKZ_*.md
